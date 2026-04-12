@@ -1,0 +1,295 @@
+name: Evaluate Submission
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'submissions/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  evaluate-level2:
+    if: contains(github.event.pull_request.title, 'level-2')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find submission file
+        id: find
+        run: |
+          FILE=$(git diff --name-only origin/master...HEAD | grep "^submissions/.*level2" | head -1)
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+          if [ -z "$FILE" ]; then
+            echo "No level2 submission found"
+            exit 1
+          fi
+
+      - name: Evaluate Level 2
+        id: eval
+        run: |
+          FILE="${{ steps.find.outputs.file }}"
+          SCORE=0
+          MAX=5
+          FEEDBACK=""
+
+          CONTENT=$(cat "$FILE")
+
+          # Check 1: Contains test client output
+          if echo "$CONTENT" | grep -q "PASS.*smile_overview"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Test client output present — LPI server ran successfully"
+          else
+            FEEDBACK="$FEEDBACK\n❌ Missing test client output — did you run \`npm run test-client\`?"
+          fi
+
+          # Check 2: Contains LLM output (any model)
+          if echo "$CONTENT" | grep -qi "digital twin\|digital-twin\|methodology\|SMILE"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ LLM output present"
+          else
+            FEEDBACK="$FEEDBACK\n❌ Missing LLM output or it doesn't mention digital twins"
+          fi
+
+          # Check 3: Model choice explained
+          if echo "$CONTENT" | grep -qi "chose\|model\|RAM\|qwen\|llama\|gemma\|smollm\|mistral"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Model choice documented"
+          else
+            FEEDBACK="$FEEDBACK\n⚠️ Model choice not clearly explained"
+          fi
+
+          # Check 4: SMILE reflection (3 sentences minimum)
+          REFLECTION_LINES=$(echo "$CONTENT" | grep -ci "surprise\|interest\|learn\|expect\|notice\|realize\|thought")
+          if [ "$REFLECTION_LINES" -ge 1 ]; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ SMILE reflection present"
+          else
+            FEEDBACK="$FEEDBACK\n⚠️ SMILE reflection seems thin — what genuinely surprised you?"
+          fi
+
+          # Check 5: Shows all 7 tools passing
+          PASS_COUNT=$(echo "$CONTENT" | grep -c "\[PASS\]" || true)
+          if [ "$PASS_COUNT" -ge 7 ]; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ All 7 tools passing ($PASS_COUNT/7+)"
+          else
+            FEEDBACK="$FEEDBACK\n⚠️ Only $PASS_COUNT tool passes detected (expected 7+)"
+          fi
+
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "max=$MAX" >> $GITHUB_OUTPUT
+          # Write feedback to file to preserve newlines
+          echo -e "$FEEDBACK" > /tmp/feedback.txt
+
+      - name: Post evaluation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const score = parseInt('${{ steps.eval.outputs.score }}');
+            const max = parseInt('${{ steps.eval.outputs.max }}');
+            const feedback = fs.readFileSync('/tmp/feedback.txt', 'utf8');
+            const pct = Math.round((score / max) * 100);
+
+            const stars = '⭐'.repeat(score) + '☆'.repeat(max - score);
+
+            let verdict = '';
+            if (score >= 4) verdict = '**Excellent work!** Ready for Level 3.';
+            else if (score >= 3) verdict = '**Good submission.** Consider improving the areas marked ⚠️, then try Level 3.';
+            else verdict = '**Needs improvement.** Please address the ❌ items and push again.';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 Automated Level 2 Evaluation\n\n**Score: ${score}/${max}** ${stars} (${pct}%)\n\n### Checklist\n${feedback}\n\n### Verdict\n${verdict}\n\n---\n*This evaluation was performed automatically. A human reviewer may follow up on outstanding submissions.*`
+            });
+
+  evaluate-level3:
+    if: contains(github.event.pull_request.title, 'level-3')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Find submission and extract repo URL
+        id: find
+        run: |
+          FILE=$(git diff --name-only origin/master...HEAD | grep "^submissions/.*level3" | head -1)
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+          if [ -z "$FILE" ]; then
+            echo "No level3 submission found"
+            exit 1
+          fi
+
+          # Extract GitHub repo URL from the submission
+          REPO_URL=$(grep -oP 'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+' "$FILE" | head -1)
+          echo "repo_url=$REPO_URL" >> $GITHUB_OUTPUT
+
+      - name: Evaluate Level 3 submission doc
+        id: eval_doc
+        run: |
+          FILE="${{ steps.find.outputs.file }}"
+          SCORE=0
+          MAX=8
+          FEEDBACK=""
+          CONTENT=$(cat "$FILE")
+
+          # 1: Has a repo link
+          if [ -n "${{ steps.find.outputs.repo_url }}" ]; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Agent repo linked: ${{ steps.find.outputs.repo_url }}"
+          else
+            FEEDBACK="$FEEDBACK\n❌ No GitHub repo URL found in submission"
+          fi
+
+          # 2: Describes what agent does
+          WORD_COUNT=$(echo "$CONTENT" | wc -w)
+          if [ "$WORD_COUNT" -ge 30 ]; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Agent description present ($WORD_COUNT words)"
+          else
+            FEEDBACK="$FEEDBACK\n❌ Description too short ($WORD_COUNT words — tell us what your agent does)"
+          fi
+
+          # 3: Mentions LPI tools
+          if echo "$CONTENT" | grep -qi "smile_overview\|query_knowledge\|get_case_studies\|get_insights\|list_topics\|smile_phase_detail\|get_methodology_step"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ LPI tools referenced"
+          else
+            FEEDBACK="$FEEDBACK\n❌ No LPI tool names mentioned — which tools does your agent call?"
+          fi
+
+          # 4: Setup instructions present
+          if echo "$CONTENT" | grep -qi "install\|setup\|run\|pip\|npm\|clone\|python"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Setup instructions present"
+          else
+            FEEDBACK="$FEEDBACK\n❌ No setup instructions — how do we run your agent?"
+          fi
+
+          # 5: Sample interaction / explainability
+          if echo "$CONTENT" | grep -qi "source\|tool.*used\|cited\|provenance\|because\|from tool\|based on"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Explainability evidence present"
+          else
+            FEEDBACK="$FEEDBACK\n⚠️ No evidence of explainability — show a sample interaction with source citations"
+          fi
+
+          # 6: Security awareness
+          if echo "$CONTENT" | grep -qi "valid\|sanitiz\|injection\|error.handl\|security\|timeout\|limit"; then
+            SCORE=$((SCORE + 1))
+            FEEDBACK="$FEEDBACK\n✅ Security awareness detected (bonus!)"
+          else
+            FEEDBACK="$FEEDBACK\n💡 Tip: mention how your agent handles bad input or errors for bonus points"
+          fi
+
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "max=$MAX" >> $GITHUB_OUTPUT
+          echo -e "$FEEDBACK" > /tmp/feedback.txt
+
+      - name: Clone and test agent repo
+        id: clone_test
+        if: steps.find.outputs.repo_url != ''
+        continue-on-error: true
+        run: |
+          CLONE_FEEDBACK=""
+          CLONE_SCORE=0
+
+          # Try to clone
+          git clone ${{ steps.find.outputs.repo_url }} /tmp/agent-repo 2>&1 || {
+            echo "clone_feedback=❌ Could not clone repo" >> $GITHUB_OUTPUT
+            echo "clone_score=0" >> $GITHUB_OUTPUT
+            exit 0
+          }
+          CLONE_SCORE=$((CLONE_SCORE + 1))
+          CLONE_FEEDBACK="$CLONE_FEEDBACK\n✅ Repo cloned successfully"
+
+          cd /tmp/agent-repo
+
+          # Check for README
+          if [ -f README.md ] || [ -f readme.md ]; then
+            CLONE_SCORE=$((CLONE_SCORE + 1))
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n✅ README present"
+          else
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n❌ No README found"
+          fi
+
+          # Check for agent.json (A2A card)
+          if [ -f agent.json ] || [ -f .well-known/agent.json ]; then
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n⭐ A2A Agent Card found (bonus!)"
+          fi
+
+          # Check for Python or JS entry point
+          if ls *.py agent/*.py src/*.py 2>/dev/null | head -1 > /dev/null; then
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n✅ Python source files found"
+          elif ls *.js *.ts src/*.ts 2>/dev/null | head -1 > /dev/null; then
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n✅ JavaScript/TypeScript source files found"
+          else
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n⚠️ No obvious entry point found"
+          fi
+
+          # Check if code references LPI tools
+          if grep -rq "smile_overview\|query_knowledge\|get_case_studies\|tools/call" . --include="*.py" --include="*.js" --include="*.ts" 2>/dev/null; then
+            CLONE_SCORE=$((CLONE_SCORE + 1))
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n✅ Code references LPI tools"
+          else
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n❌ Code does not appear to call any LPI tools"
+          fi
+
+          # Check for error handling / security
+          if grep -rq "try\|except\|catch\|timeout\|sanitiz\|valid" . --include="*.py" --include="*.js" --include="*.ts" 2>/dev/null; then
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n✅ Error handling / input validation detected"
+          else
+            CLONE_FEEDBACK="$CLONE_FEEDBACK\n⚠️ No error handling detected — what happens with bad input?"
+          fi
+
+          echo "clone_score=$CLONE_SCORE" >> $GITHUB_OUTPUT
+          echo -e "$CLONE_FEEDBACK" > /tmp/clone_feedback.txt
+
+      - name: Post Level 3 evaluation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const docScore = parseInt('${{ steps.eval_doc.outputs.score }}') || 0;
+            const docMax = parseInt('${{ steps.eval_doc.outputs.max }}') || 8;
+            const cloneScore = parseInt('${{ steps.clone_test.outputs.clone_score }}') || 0;
+            const totalScore = docScore + cloneScore;
+            const totalMax = docMax + 3;
+
+            const docFeedback = fs.readFileSync('/tmp/feedback.txt', 'utf8');
+            let cloneFeedback = '';
+            try {
+              cloneFeedback = fs.readFileSync('/tmp/clone_feedback.txt', 'utf8');
+            } catch(e) {
+              cloneFeedback = '⚠️ Could not evaluate repo (no URL found or clone failed)';
+            }
+
+            const pct = Math.round((totalScore / totalMax) * 100);
+            const stars = '⭐'.repeat(Math.min(totalScore, 5)) + '☆'.repeat(Math.max(0, 5 - totalScore));
+
+            let verdict = '';
+            if (pct >= 80) verdict = '**Outstanding!** This is a strong Level 3 submission. You are ready to be an Agent Builder.';
+            else if (pct >= 60) verdict = '**Good work!** Solid foundation. Address the items marked ❌ or ⚠️ to strengthen your submission.';
+            else if (pct >= 40) verdict = '**Getting there.** The core is present but needs more work on explainability and/or LPI integration.';
+            else verdict = '**Needs significant work.** Make sure your agent actually calls LPI tools and explains its reasoning.';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 Automated Level 3 Evaluation\n\n**Score: ${totalScore}/${totalMax}** ${stars} (${pct}%)\n\n### Submission Document\n${docFeedback}\n\n### Repo Analysis\n${cloneFeedback}\n\n### Verdict\n${verdict}\n\n---\n*This evaluation was performed automatically. Scores feed the [contributor leaderboard](https://life-atlas.github.io/lpi-developer-kit/).*`
+            });

@@ -158,17 +158,28 @@ PR title: `level-2: Your Name`
 
 ### Level 3 — Build Your First Agent (2-4 hours)
 
-Build an AI agent that uses **both** the LPI sandbox **and** an LLM (local via Ollama, or any cloud API) together.
+Build an AI agent that connects to the LPI sandbox and does something useful with the data.
 
-Your agent must:
+**Your agent must:**
 1. Accept a user question or input
 2. Query at least 2 LPI tools to get relevant knowledge
-3. Pass that knowledge to an LLM as context
+3. Process the results — summarize, analyze, combine, visualize, or reason over them
 4. Return a response that **cites which LPI tools and data it used** — this is explainable AI: the user can trace where every part of the answer came from
 
-Use any language or framework: raw API calls, LangChain, CrewAI, Anthropic SDK, OpenAI SDK, or just Python with `requests`. Your choice.
+**Use any approach:**
+- **Raw Python** — call the MCP server via subprocess + JSON-RPC (see `examples/agent.py`)
+- **LangGraph** — build a multi-step agent workflow with tool nodes
+- **CrewAI** — create role-based agents that collaborate
+- **LangChain** — use their MCP integration
+- **Any LLM** — local (Ollama), cloud (OpenAI, Anthropic, Google), or none at all (pure logic agent)
+- **No LLM is fine** — an agent that calls LPI tools and produces a structured report WITHOUT an LLM is a valid submission. The skill is in the tool orchestration and output quality, not in having a chatbot wrapper.
 
-A working example is in `examples/agent.py` — use it as a starting point or build from scratch. The example connects to the LPI via subprocess, calls 3 tools, and passes results to Ollama. You can copy it, modify it, or rewrite it entirely.
+**Bonus points for:**
+- **Security hardening** — input validation, prompt injection defense, error handling that doesn't leak internals
+- **Multi-step workflows** — agents that chain multiple tool calls based on intermediate results
+- **Novel output formats** — dashboards, comparison tables, decision trees, visualizations — not just text
+
+A working example is in `examples/agent.py` — use it as a starting point or build from scratch.
 
 **Submit:** Create your agent as a **separate GitHub repo** (not a PR to this one). Add a link to it in `submissions/your-name/level3.md` along with:
 - What your agent does (2-3 sentences)
