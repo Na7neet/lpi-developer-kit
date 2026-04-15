@@ -10,7 +10,7 @@
 
 3\. Verified that all 7 MCP tools passed.
 
-4\. Installed Ollama and ran a local LLM model successfully.
+4\. Installed Ollama and ran a local LLM model (qwen2.5:1.5b).
 
 
 
