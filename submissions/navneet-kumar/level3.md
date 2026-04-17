@@ -1,4 +1,4 @@
-\# Level 3 Submission
+\# Level 3 Submission (v2)
 
 
 
@@ -72,15 +72,15 @@ The agent explicitly explains:
 
 \## Example
 
-Input: personal health digital twin  
+Input: personal health digital twin
 
-Output:  
+Output:
 
-\- Wikipedia summary  
+\- Wikipedia summary
 
-\- Research papers  
+\- Research papers
 
-\- Structured report with citations  
+\- Structured report with citations
 
 \- Explanation of reasoning
 
